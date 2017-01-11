@@ -10,6 +10,9 @@ GameObject::~GameObject()
 {
 	glDeleteVertexArrays(1, &this->VAO);
 	glDeleteBuffers(1, &this->VBO);
+	motionState.reset();
+	rigidBody.reset();
+	shape.reset();
 }
 
 void GameObject::SetRigidBody(std::unique_ptr<btDiscreteDynamicsWorld>& dynamicsWorld, std::unique_ptr<btCollisionShape> &shape,
@@ -20,7 +23,7 @@ void GameObject::SetRigidBody(std::unique_ptr<btDiscreteDynamicsWorld>& dynamics
 	this->shape = std::move(shape);
 	this->motionState = std::unique_ptr<btDefaultMotionState>(new btDefaultMotionState(btTransform(rotation, position)));
 	btRigidBody::btRigidBodyConstructionInfo rigidBodyConstructionInfo(mass, this->motionState.get(), this->shape.get(), inertia);
-	this->rigidBody = std::unique_ptr<btRigidBody>(new btRigidBody(rigidBodyConstructionInfo));
+	this->rigidBody = std::shared_ptr<btRigidBody>(new btRigidBody(rigidBodyConstructionInfo));
 	this->name = name;
 	this->rigidBody->setUserPointer(this);
 	dynamicsWorld->addRigidBody(this->rigidBody.get());

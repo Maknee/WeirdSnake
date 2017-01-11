@@ -8,9 +8,11 @@
 class Engine
 {
 private:
-	SoundEngine soundEngine;
-	GraphicsEngine graphicsEngine;
 public:
+	static Engine* thisEngine;
+	GraphicsEngine graphicsEngine;
+	SoundEngine soundEngine;
+
 	Engine();
 	~Engine();
 	void init();

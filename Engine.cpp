@@ -1,8 +1,10 @@
 #include "Engine.h"
 
+Engine* Engine::thisEngine;
+
 Engine::Engine()
 {
-
+	thisEngine = this;
 }
 
 Engine::~Engine()

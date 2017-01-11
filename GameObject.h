@@ -34,7 +34,7 @@ public:
 	// Render Info
 	std::unique_ptr<btCollisionShape> shape;
 	std::unique_ptr<btDefaultMotionState> motionState;
-	std::unique_ptr<btRigidBody> rigidBody;
+	std::shared_ptr<btRigidBody> rigidBody;
 
 	std::string name;
 
@@ -67,7 +67,7 @@ public:
 		this->color = color;
 		this->rotation = rotation;
 	};
-	~Box() {};
+	virtual ~Box() { GameObject::~GameObject(); };
 	virtual void initRenderData() override;
 	virtual void DrawSprite() override;
 	virtual void DrawSprite(glm::mat4 & model) override;

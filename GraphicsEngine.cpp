@@ -1,5 +1,6 @@
 #include "GraphicsEngine.h"
 
+
 // GLFW
 GLFWwindow* GraphicsEngine::window;
 
@@ -40,7 +41,16 @@ GraphicsEngine::~GraphicsEngine()
 	{
 		dynamicsWorld->removeRigidBody(snakePart->rigidBody.get());
 	}
-	
+
+	for (auto const & snakePart : disconnectedSnake)
+	{
+		dynamicsWorld->removeRigidBody(snakePart->rigidBody.get());
+	}
+
+	for (auto const & point : points)
+	{
+		dynamicsWorld->removeRigidBody(point->rigidBody.get());
+	}
 	
 	/*
 	for (int i = 0; i < this->dynamicsWorld->getNumCollisionObjects(); i++)
@@ -166,9 +176,25 @@ btQuaternion glmToBt(const glm::quat & quat)
 	return btQuaternion(quat.x, quat.y, quat.z, quat.w);
 }
 
+template <typename T>
+T randomFrom(const T min, const T max)
+{
+	static std::random_device rdev;
+	static std::default_random_engine re(rdev());
+	typedef typename std::conditional<
+		std::is_floating_point<T>::value,
+		std::uniform_real_distribution<T>,
+		std::uniform_int_distribution<T>>::type dist_type;
+	dist_type uni(min, max);
+	return static_cast<T>(uni(re));
+}
+
 void GraphicsEngine::createRoom()
 {
 	std::vector<std::shared_ptr<GameObject>> mainRoom;
+	
+	// Floor
+
 	for (GLfloat x = -5; x <= 5; x++)
 	{
 		for (GLfloat z = -5; z <= 5; z++)
@@ -193,22 +219,134 @@ void GraphicsEngine::createRoom()
 			mainRoom.push_back(std::move(floorTile));
 		}
 	}
+
+	for (GLfloat x = -5; x <= 5; x++)
+	{
+		for (GLfloat y = 1; y < 4; y++)
+		{
+			for (GLfloat z = -5; z <= 5; z++)
+			{
+				if (!(x >= -4 && x <= 4 && z >= -4 && z <= 4))
+				{
+					std::shared_ptr<GameObject> floorTile(new Box(ResourceManager::GetShader("snake"),
+						glm::vec3(x, y, z), glm::vec3(1.0f, 1.0f, 1.0f), glm::vec3(0.8f, 0.85f, 0.5f),
+						glm::angleAxis(0.0f, glm::vec3(0.0f, 0.0f, 0.0f))));
+
+					std::unique_ptr<btCollisionShape> floorShape(new btBoxShape(glmToBt(floorTile->scale * glm::vec3(0.5f, 0.5f, 0.5f))));
+					btScalar boxMass = 0.0f;
+					btVector3 boxInertia(0.0f, 0.0f, 0.0f);
+					//floorShape->calculateLocalInertia(boxMass, boxInertia);
+					floorTile->SetRigidBody(dynamicsWorld, floorShape, "floor",
+						glmToBt(floorTile->position), glmToBt(floorTile->rotation),
+						boxMass, boxInertia);
+
+					// Bounciness - higher values = higher bounce
+					floorTile->rigidBody->setRestitution(0.00f);
+					// Friction
+					floorTile->rigidBody->setFriction(0.5f);
+
+					mainRoom.push_back(std::move(floorTile));
+				}
+			}
+		}
+	}
+
 	rooms.push_back(mainRoom);
+}
+
+// Adds a single floor
+void GraphicsEngine::addFloor(glm::vec3 &pos, glm::vec3 &scale, glm::vec3 &color)
+{
+	std::vector<std::shared_ptr<GameObject>> mainRoom;
+	std::shared_ptr<GameObject> floorTile(new Box(ResourceManager::GetShader("snake"),
+		pos, scale, color, glm::angleAxis(0.0f, glm::vec3(0.0f, 0.0f, 0.0f))));
+
+	std::unique_ptr<btCollisionShape> floorShape(new btBoxShape(glmToBt(floorTile->scale * glm::vec3(0.5f, 0.5f, 0.5f))));
+	btScalar boxMass = 0.0f;
+	btVector3 boxInertia(0.0f, 0.0f, 0.0f);
+	floorTile->SetRigidBody(dynamicsWorld, floorShape, "floor",
+		glmToBt(floorTile->position), glmToBt(floorTile->rotation),
+		boxMass, boxInertia);
+
+	// Bounciness - higher values = higher bounce
+	floorTile->rigidBody->setRestitution(0.00f);
+	// Friction
+	floorTile->rigidBody->setFriction(0.5f);
+
+	mainRoom.push_back(std::move(floorTile));
+	rooms.push_back(mainRoom);
+}
+
+void GraphicsEngine::createPoint()
+{
+	GLfloat randomX = randomFrom(-4.0f, 4.0f);
+	GLfloat randomZ = randomFrom(-4.0f, 4.0f);
+	std::unique_ptr<GameObject> box(new Box(ResourceManager::GetShader("snake"),
+		glm::vec3(randomX, 1.0f, randomZ), glm::vec3(1.0f, 1.0f, 1.0f), glm::vec3(1.0f, 0.5f, 0.5f),
+		glm::angleAxis(0.0f, glm::vec3(0.0f, 0.0f, 0.0f))));
+
+	std::unique_ptr<btCollisionShape> boxShape(new btBoxShape(glmToBt(box->scale * glm::vec3(0.5f, 0.5f, 0.5f))));
+	btScalar boxMass = 1.5f;
+	btVector3 boxInertia(1.0f, 1.0f, 1.0f);
+	boxShape->calculateLocalInertia(boxMass, boxInertia);
+	box->SetRigidBody(dynamicsWorld, boxShape, "point",
+		glmToBt(box->position), glmToBt(box->rotation),
+		boxMass, boxInertia);
+
+	box->rigidBody->setRestitution(0.00f);
+
+	box->rigidBody->setFriction(0.5f);
+
+	box->rigidBody->setDamping(0.1f, 0.2f);
+
+	points.push_back(std::move(box));
+}
+
+void GraphicsEngine::addSnakeBody()
+{
+	std::unique_ptr<GameObject> box(new Box(ResourceManager::GetShader("snake"),
+		btToGlm(snake.back()->rigidBody->getWorldTransform().getOrigin()), glm::vec3(1.0f, 1.0f, 1.0f), glm::vec3(0.8f, 0.85f, 0.5f),
+		glm::angleAxis(0.0f, glm::vec3(0.0f, 0.0f, 0.0f))));
+
+	std::unique_ptr<btCollisionShape> boxShape(new btBoxShape(glmToBt(box->scale * glm::vec3(0.5f, 0.5f, 0.5f))));
+	btScalar boxMass = 1.5f;
+	btVector3 boxInertia(1.0f, 1.0f, 1.0f);
+	boxShape->calculateLocalInertia(boxMass, boxInertia);
+	box->SetRigidBody(dynamicsWorld, boxShape, "snakeTail",
+		glmToBt(box->position), glmToBt(box->rotation),
+		boxMass, boxInertia);
+
+	box->rigidBody->setRestitution(0.00f);
+
+	box->rigidBody->setFriction(0.5f);
+
+	box->rigidBody->setDamping(0.1f, 0.2f);
+
+	std::unique_ptr<btTypedConstraint> p2p(new btPoint2PointConstraint(*box->rigidBody, *snake.back()->rigidBody.get(), btVector3(0.0f, 0.0f, -1.0f), btVector3(0.0f, 0.0f, 1.0f)));
+	dynamicsWorld->addConstraint(p2p.get());
+
+	constraints.insert(std::pair<std::shared_ptr<btRigidBody>, std::unique_ptr<btTypedConstraint>>(box->rigidBody, std::move(p2p)));
+
+	snake.push_back(std::move(box));
 }
 
 void GraphicsEngine::initGameObjects()
 {
+	// Load all the necessary shaders here
 	ResourceManager::LoadShader("Shaders\\SnakeBodyShader.vs", "Shaders\\SnakeBodyShader.frag", nullptr, "snake");
-	//GameObject* box = new Box(ResourceManager::GetShader("snake"));
+
+	// Load all the necessary textures here
+	ResourceManager::LoadTexture("Textures\\container.jpg", GL_FALSE, "c");
+
 	std::unique_ptr<GameObject> box(new Box(ResourceManager::GetShader("snake"),
 		glm::vec3(0.0f, 5.0f, 0.0f), glm::vec3(1.0f, 1.0f, 1.0f), glm::vec3(0.8f, 0.85f, 0.5f), 
 		glm::angleAxis(0.0f, glm::vec3(0.0f, 0.0f, 0.0f))));
 
 	std::unique_ptr<btCollisionShape> boxShape(new btBoxShape(glmToBt(box->scale * glm::vec3(0.5f, 0.5f, 0.5f))));
-	btScalar boxMass = 1.2f;
+	btScalar boxMass = 1.5f;
 	btVector3 boxInertia(1.0f, 1.0f, 1.0f);
 	boxShape->calculateLocalInertia(boxMass, boxInertia);
-	box->SetRigidBody(dynamicsWorld, boxShape, "box",
+	box->SetRigidBody(dynamicsWorld, boxShape, "snake",
 		glmToBt(box->position), glmToBt(box->rotation), 
 		boxMass, boxInertia);
 
@@ -218,19 +356,157 @@ void GraphicsEngine::initGameObjects()
 
 	box->rigidBody->setDamping(0.1f, 0.2f);
 
-	//std::cout << box->motionState->m_graphicsWorldTrans.getOrigin().getY();
 	snake.push_back(std::move(box));
 
 	createRoom();
+	createPoint();
+}
 
-	ResourceManager::LoadTexture("Textures\\container.jpg", GL_FALSE, "c");
+void GraphicsEngine::checkCollisions()
+{
+	GLboolean hasHitAPoint = false;
+	static GLdouble hitLastTime = 0.0f;
+	const GLdouble hitDeltaTime = glfwGetTime() - hitLastTime;
+	const GLdouble pointCooldownDifference = 1.0f;
+
+	int numManifolds = dynamicsWorld->getDispatcher()->getNumManifolds();
+	for (int i = 0; i < numManifolds; i++)
+	{
+		btPersistentManifold* contactManifold = dynamicsWorld->getDispatcher()->getManifoldByIndexInternal(i);
+		btCollisionObject* obA = const_cast<btCollisionObject*>(contactManifold->getBody0());
+		btCollisionObject* obB = const_cast<btCollisionObject*>(contactManifold->getBody1());
+
+		GameObject* obAUserPointer = static_cast<GameObject*>(obA->getUserPointer());
+		GameObject* obBUserPointer = static_cast<GameObject*>(obB->getUserPointer());
+		
+		int numContacts = contactManifold->getNumContacts();
+		for (int j = 0; j < numContacts; j++)
+		{
+			btManifoldPoint& pt = contactManifold->getContactPoint(j);
+			if (pt.getDistance() < 0.f)
+			{
+				if (obAUserPointer != nullptr && obBUserPointer != nullptr && !hasHitAPoint && hitDeltaTime > pointCooldownDifference)
+				{
+					// Collision between snake head and point
+					if (obAUserPointer->name.compare("snake") == 0 && obBUserPointer->name.compare("point") == 0)
+					{
+						btScalar randomX = randomFrom(-4.0f, 4.0f);
+						btScalar randomZ = randomFrom(-4.0f, 4.0f);
+						btRigidBody* point = btRigidBody::upcast(obB);
+						point->activate();
+						point->setWorldTransform(btTransform(point->getWorldTransform().getRotation(), btVector3(randomX, 1.0f, randomZ)));
+						addSnakeBody();
+						hasHitAPoint = true;
+						hitLastTime = glfwGetTime();
+					}
+					else if (obAUserPointer->name.compare("point") == 0 && obBUserPointer->name.compare("snake") == 0)
+					{
+						btScalar randomX = randomFrom(-4.0f, 4.0f);
+						btScalar randomZ = randomFrom(-4.0f, 4.0f);
+						btRigidBody* point = btRigidBody::upcast(obA);
+						point->activate();
+						point->setWorldTransform(btTransform(point->getWorldTransform().getRotation(), btVector3(randomX, 1.0f, randomZ)));
+						addSnakeBody();
+						hasHitAPoint = true;
+						hitLastTime = glfwGetTime();
+					}
+
+					// Collision between head and tail
+					if (obAUserPointer->name.compare("snake") == 0 && obBUserPointer->name.compare("snakeTail") == 0)
+					{
+						for (std::size_t i = 0; i != snake.size(); ++i)
+						{
+							if (snake[i]->rigidBody->getUserPointer() == obBUserPointer)
+							{
+								//snake[i]->rigidBody->setLinearVelocity(btVector3(0.0f, 1.0f, 0.0));
+
+
+								std::cout << i << "        " << snake[i]->name << " --- " << obBUserPointer->name << std::endl;
+								// Check if a constraint exists for the snake body part that was hit
+								auto pair = constraints.find(snake[i]->rigidBody);
+								if (pair != constraints.end())
+								{
+									dynamicsWorld->removeConstraint(pair->second.get());
+									constraints.erase(pair);
+
+									// Delete the constraint between the deleted part and the next part of the tail 
+									// and mark it the snake part as disconnected
+									if (i + 1 < snake.size())
+									{
+										pair = constraints.find(snake[i + 1]->rigidBody);
+										dynamicsWorld->removeConstraint(pair->second.get());
+										constraints.erase(pair);
+										
+										std::size_t snakeDeletionLocation = i + 1;
+										// disconnect the rest of the snake body
+										while (snakeDeletionLocation != snake.size())
+										{
+											// If you want to disconnect into single cubes...
+											/*
+											pair = constraints.find(snake[snakeDeletionLocation]->rigidBody);
+											dynamicsWorld->removeConstraint(pair->second.get());
+											constraints.erase(pair);
+											*/
+											//
+											
+											snake[snakeDeletionLocation]->name = "snakeTailDisconnected";
+											disconnectedSnake.push_back(std::move(snake[snakeDeletionLocation]));
+											snake.erase(snake.begin() + snakeDeletionLocation);
+										}
+									}
+									// Remove the rigidbody from the world
+									dynamicsWorld->removeRigidBody(snake[i]->rigidBody.get());
+									// Clear the snake part from the snake vector
+									snake[i].reset();
+									snake.erase(snake.begin() + i);
+								}
+
+								return;
+							}
+						}
+					}
+					else if (obAUserPointer->name.compare("snakeTail") == 0 && obBUserPointer->name.compare("snake") == 0)
+					{
+						for (std::size_t i = 0; i != snake.size(); ++i)
+						{
+							if (snake[i]->rigidBody->getUserPointer() == obAUserPointer)
+							{
+								//dynamicsWorld->removeRigidBody(snake[i]->rigidBody.get());
+								//snake.erase(snake.begin() + i);
+							}
+						}
+					}
+				}
+			}
+		}
+		/*
+		if (obA == snake[0]->rigidBody.get())
+		{
+		obA->activate();
+		snake[0]->rigidBody.get()->applyCentralImpulse(btVector3(0.0f, 0.0f, -0.1f));
+		}
+
+		/*
+		int numContacts = contactManifold->getNumContacts();
+		for (int j = 0; j < numContacts; j++)
+		{
+		btManifoldPoint& pt = contactManifold->getContactPoint(j);
+		if (pt.getDistance() < 0.f)
+		{
+		const btVector3& ptA = pt.getPositionWorldOnA();
+		const btVector3& ptB = pt.getPositionWorldOnB();
+		const btVector3& normalOnB = pt.m_normalWorldOnB;
+		}
+		}
+		*/
+	}
 }
 
 void GraphicsEngine::run()
 {
 	initGameObjects();
 	glEnable(GL_DEPTH_TEST);
-	
+	dungeon.generateDungeon();
 	// Game loop
 	while (!glfwWindowShouldClose(window))
 	{
@@ -246,58 +522,14 @@ void GraphicsEngine::run()
 #endif
 
 		dynamicsWorld->stepSimulation(1 / 60.f, 10);
-
-		int numManifolds = dynamicsWorld->getDispatcher()->getNumManifolds();
-		for (int i = 0; i < numManifolds; i++)
-		{
-			btPersistentManifold* contactManifold = dynamicsWorld->getDispatcher()->getManifoldByIndexInternal(i);
-			btCollisionObject* obA = const_cast<btCollisionObject*>(contactManifold->getBody0());
-			btCollisionObject* obB = const_cast<btCollisionObject*>(contactManifold->getBody1());
-
-			GameObject* obAUserPointer = static_cast<GameObject*>(obA->getUserPointer());
-			if (obAUserPointer != nullptr)
-			{
-				if (obAUserPointer->name.compare("box") == 0)
-				{
-					//btRigidBody::upcast(obA)->activate();
-					btRigidBody::upcast(obA)->applyCentralForce(btVector3(0.0f, 2.0f, 0.0f));
-				}
-			}
-			GameObject* obBUserPointer = static_cast<GameObject*>(obB->getUserPointer());
-			if (obBUserPointer != nullptr)
-			{
-				std::cout << obBUserPointer->name << std::endl;
-				if (obAUserPointer->name.compare("box") == 0)
-				{
-					//exit(0);
-				}
-			}
-			/*
-			if (obA == snake[0]->rigidBody.get())
-			{
-				obA->activate();
-				snake[0]->rigidBody.get()->applyCentralImpulse(btVector3(0.0f, 0.0f, -0.1f));
-			}
-			
-			/*
-			int numContacts = contactManifold->getNumContacts();
-			for (int j = 0; j < numContacts; j++)
-			{
-				btManifoldPoint& pt = contactManifold->getContactPoint(j);
-				if (pt.getDistance() < 0.f)
-				{
-					const btVector3& ptA = pt.getPositionWorldOnA();
-					const btVector3& ptB = pt.getPositionWorldOnB();
-					const btVector3& normalOnB = pt.m_normalWorldOnB;
-				}
-			}
-			*/
-		}
+		
+		// Check collisions
+		checkCollisions();
 
 		btTransform trans;
 		snake[0]->rigidBody->getMotionState()->getWorldTransform(trans);
 		//std::cout << dynamicsWorld->getNumCollisionObjects() << "sphere height: " << trans.getOrigin().getY() << std::endl;
-
+		
 		// Render
 		for (auto const & room : rooms)
 		{
@@ -322,14 +554,48 @@ void GraphicsEngine::run()
 			snakePart->shader.SetVector3f("lightColor", glm::vec3(1.0f, 1.0f, 1.0f));
 			snakePart->shader.SetVector3f("lightPos", glm::vec3(1.2f, 1.0f, 2.0f));
 
+			snakePart->rigidBody->activate();
+
 			btTransform trans;
 			snakePart->rigidBody->getMotionState()->getWorldTransform(trans);
 			glm::mat4 model;
 
 			trans.getOpenGLMatrix(glm::value_ptr(model));
-			std::cout << trans.getOrigin().getY() << std::endl;
+			//std::cout << trans.getOrigin().getY() << std::endl;
 			snakePart->DrawSprite(ResourceManager::GetTexture("c"), model);
+		}
 
+
+		for (auto const & snakePart : disconnectedSnake)
+		{
+			snakePart->shader.Use();
+			snakePart->shader.SetVector3f("lightColor", glm::vec3(1.0f, 1.0f, 1.0f));
+			snakePart->shader.SetVector3f("lightPos", glm::vec3(1.2f, 1.0f, 2.0f));
+
+			snakePart->rigidBody->activate();
+
+			btTransform trans;
+			snakePart->rigidBody->getMotionState()->getWorldTransform(trans);
+			glm::mat4 model;
+
+			trans.getOpenGLMatrix(glm::value_ptr(model));
+			snakePart->DrawSprite(ResourceManager::GetTexture("c"), model);
+		}
+
+		for (auto const & point : points)
+		{
+			point->shader.Use();
+			point->shader.SetVector3f("lightColor", glm::vec3(1.0f, 1.0f, 1.0f));
+			point->shader.SetVector3f("lightPos", glm::vec3(1.2f, 1.0f, 2.0f));
+
+			point->rigidBody->activate();
+
+			btTransform trans;
+			point->rigidBody->getMotionState()->getWorldTransform(trans);
+			glm::mat4 model;
+
+			trans.getOpenGLMatrix(glm::value_ptr(model));
+			point->DrawSprite(model);
 		}
 		// Swap buffers
 		glfwSwapBuffers(window);
@@ -391,35 +657,62 @@ void GraphicsEngine::processInput()
 
 void GraphicsEngine::performMovement()
 {
-
+	GLfloat distance = 1.0f;
 	switch (previousKey)
 	{
 	case KEY_NONE:
 		break;
 	case KEY_UP:
+	{
 		snake[0]->position.z -= 1.0f / 60;
 		snake[0]->rigidBody->activate();
-		snake[0]->rigidBody->setLinearVelocity(btVector3(0.0f, 0.0f, -1.0f));
-		//snake[0]->rigidBody->applyCentralForce(btVector3(0.0f, 0.0f, -0.1f));
-		//snake[0]->rigidBody->applyCentralImpulse(btVector3(0.0f, 0.0f, -0.1f));
+
+		btVector3 velocity = snake[0]->rigidBody->getLinearVelocity();
+		velocity.setZ(velocity.getZ() - distance);
+		snake[0]->rigidBody->setLinearVelocity(velocity);
+
+		snake[0]->rigidBody->setLinearVelocity(btVector3(0.0f, 0.0f, -distance));
+
 		break;
+	}
 	case KEY_LEFT:
+	{
 		snake[0]->position.x -= 1.0f / 60;
 		snake[0]->rigidBody->activate();
-		snake[0]->rigidBody->setLinearVelocity(btVector3(-1.0f, 0.0f, 0.0f));
-		//snake[0]->rigidBody->applyCentralImpulse(btVector3(-0.1f, 0.0f, 0.0f));
+
+		btVector3 velocity = snake[0]->rigidBody->getLinearVelocity();
+		velocity.setX(velocity.getX() - distance);
+		snake[0]->rigidBody->setLinearVelocity(velocity);
+
+		snake[0]->rigidBody->setLinearVelocity(btVector3(-distance, 0.0f, 0.0f));
+
 		break;
+	}
 	case KEY_RIGHT:
+	{
 		snake[0]->position.x += 1.0f / 60;
 		snake[0]->rigidBody->activate();
-		snake[0]->rigidBody->setLinearVelocity(btVector3(1.0f, 0.0f, 0.0f));
-		//snake[0]->rigidBody->applyCentralImpulse(btVector3(0.1f, 0.0f, 0.0f));
+
+		btVector3 velocity = snake[0]->rigidBody->getLinearVelocity();
+		velocity.setX(velocity.getX() + distance);
+		snake[0]->rigidBody->setLinearVelocity(velocity);
+
+		snake[0]->rigidBody->setLinearVelocity(btVector3(distance, 0.0f, 0.0f));
+
 		break;
+	}
 	case KEY_DOWN:
 	{
 		snake[0]->position.z += 1.0f / 60;
 		snake[0]->rigidBody->activate();
-		snake[0]->rigidBody->setAngularVelocity(btVector3(0.0f, 0.0f, 0.0f));
+		
+		btVector3 velocity = snake[0]->rigidBody->getLinearVelocity();
+		velocity.setZ(velocity.getZ() + distance);
+		snake[0]->rigidBody->setLinearVelocity(velocity);
+
+		snake[0]->rigidBody->setLinearVelocity(btVector3(0.0f, 0.0f, distance));
+
+		/*snake[0]->rigidBody->setAngularVelocity(btVector3(0.0f, 0.0f, 0.0f));
 		btTransform tr;
 		tr = snake[0]->rigidBody->getCenterOfMassTransform();
 		btQuaternion quat;
@@ -427,9 +720,10 @@ void GraphicsEngine::performMovement()
 		tr.setRotation(quat);
 		snake[0]->rigidBody->setCenterOfMassTransform(tr);
 		snake[0]->rigidBody->setLinearVelocity(btVector3(0.0f, 0.0f, 1.0f));
-		//snake[0]->rigidBody->setGravity(btVector3(0.0f, -10.0f, 0.0f));
-		//snake[0]->rigidBody->applyCentralImpulse(btVector3(0.0f, 0.0f, 0.1f));
+		snake[0]->rigidBody->setGravity(btVector3(0.0f, -10.0f, 0.0f));
+		snake[0]->rigidBody->applyCentralImpulse(btVector3(0.0f, 0.0f, 0.1f));
 		break;
+		*/
 	}
 	default:
 		break;

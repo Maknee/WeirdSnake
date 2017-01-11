@@ -5,12 +5,14 @@
 #include <memory>
 #include <map>
 #include <string>
+#include <random>
 
 // Other includes
 #include "Shader.h"
 #include "GameObject.h"
 #include "ResourceManager.h"
 #include "DebugDrawer.h"
+#include "StageGenerator.h"
 
 // GLFW
 #include "Dependencies\glfw3\glfw3.h"
@@ -26,6 +28,9 @@
 #include "Dependencies\glm\gtc\type_ptr.hpp"
 
 #include "btBulletDynamicsCommon.h"
+#include "BulletSoftBody/btSoftRigidDynamicsWorld.h"
+#include "BulletSoftBody/btSoftBodyHelpers.h"
+#include "BulletSoftBody/btSoftBodyRigidBodyCollisionConfiguration.h"
 
 // DEFINE
 #define _DEBUG_MODEw
@@ -54,10 +59,15 @@ private:
 	}previousKey = KEY_NONE;
 
 	// GameObjects
-	//std::map<std::string, GameObject> gameObjects;
+	std::map<std::shared_ptr<btRigidBody>, std::unique_ptr<btTypedConstraint>> constraints;
 
 	std::vector<std::unique_ptr<GameObject>> snake;
+	std::vector<std::unique_ptr<GameObject>> disconnectedSnake;
 	std::vector<std::vector<std::shared_ptr<GameObject>>> rooms;
+	std::vector<std::unique_ptr<GameObject>> points;
+
+	Dungeon dungeon;
+
 	// GLFW
 	static GLFWwindow* window;
 
@@ -74,8 +84,11 @@ private:
 	static void mouse_callback(GLFWwindow* window, double xpos, double ypos);
 	static void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
 	
+	// Process inputs
 	void processInput();
 	void performMovement();
+	void checkCollisions();
+
 	// Initialization windows functions
 	void initWindow();
 	void initBulletPhysics();
@@ -83,6 +96,10 @@ private:
 
 	// Create Shapes Functions
 	void createRoom();
+	void createPoint();
+	void addSnakeBody();
+
+
 public:
 	static const GLuint WIDTH = 800;
 	static const GLuint HEIGHT = 600;
@@ -99,4 +116,6 @@ public:
 	~GraphicsEngine();
 	void init();
 	void run();
+
+	void addFloor(glm::vec3 &pos, glm::vec3 &scale, glm::vec3 &color);
 };
