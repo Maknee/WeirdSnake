@@ -4,6 +4,8 @@
 #include <vector>
 #include <memory>
 #include <random>
+#include <map>
+#include <set>
 
 // Implementation from https://github.com/munificent/hauberk/blob/db360d9efa714efb6d937c31953ef849c7394a39/lib/src/content/dungeon.dart
 
@@ -82,7 +84,7 @@ public:
 
 	TileType getTileType(glm::vec3 &pos) const
 	{
-		return tiles[pos.x][pos.y].tileType;
+		return tiles[pos.x][pos.z].tileType;
 	}
 
 	void setTileType(glm::vec3 &pos, const TileType &tileType)
@@ -189,7 +191,7 @@ public:
 	void generateDungeon()
 	{
 		// Fill the tiles
-		fillTiles(TileType::FLOOR);
+		fillTiles(TileType::WALL);
 
 		regions.resize(height);
 		for (int i = 0; i < height; i++)
@@ -343,8 +345,48 @@ public:
 
 	void connectRegions()
 	{
-		// find two regions that can connect
-
+		// find regions that can connect
+		std::map<glm::vec3, std::set<int>> connectorRegions;
+		for (int y = 0; y < height; y++)
+		{
+			for (int x = 0; x < width; x++)
+			{
+				if(getTileType(glm::vec3(static_cast<GLfloat>(x), 0.0f, static_cast<GLfloat>(y)), tileType) 
+					!= TileType::Wall) continue;
+				std::set<int> regions;
+				
+				//STOPPED HERE. NEED TO INIT INTS TO -1 for NULL.
+				for (int dir = Direction::NORTH ; dir != Direction::SOUTH; dir++)
+				{
+					switch (dir)
+					{
+					case NORTH:
+					{
+						if (y - 3 < 0)
+							return false;
+					}
+					case SOUTH:
+					{
+						if (y + 3 < height)
+							return false;
+					}
+					case WEST:
+					{
+						if (y - 3 < width)
+							return false;
+					}
+					case EAST:
+					{
+						if (x + 3 < width)
+							return false;
+					}
+					default:
+						break;
+					}
+					return true;
+				}
+			}
+		}
 	}
 
 	void removeDeadEnds()
